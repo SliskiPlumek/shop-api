@@ -5,11 +5,11 @@ const jwt = require("jsonwebtoken");
 
 const resolvers = {
   Query: {
-    getUser: async (_, { email }) => {
-      const user = await User.findOne({ email: email }).populate("products");
+    getUser: async (_, { userId }) => {
+      const user = await User.findById(userId).populate("products");
 
       if (!user) {
-        const error = new Error("No user with this email was found!");
+        const error = new Error("User with this id does not exist");
         error.code = 404;
         throw error;
       }
