@@ -1,0 +1,43 @@
+{
+  "name": "shop-api",
+  "version": "1.0.0",
+  "description": "e-commerce shop api",
+  "main": "app.js",
+  "scripts": {
+    "start": "nodemon app.js",
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SliskiPlumek/shop-api.git"
+  },
+  "keywords": [
+    "shop",
+    "api",
+    "express"
+  ],
+  "author": "Hubert Śliwiński",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/SliskiPlumek/shop-api/issues"
+  },
+  "homepage": "https://github.com/SliskiPlumek/shop-api#readme",
+  "dependencies": {
+    "@apollo/server": "^4.7.5",
+    "@plumek/jwt-auth-express": "^1.1.2",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "firebase": "^9.23.0",
+    "firebase-admin": "^11.9.0",
+    "graphql": "^16.7.1",
+    "graphql-tag": "^2.12.6",
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^7.3.1",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "dotenv": "^16.3.1",
+    "nodemon": "^2.0.22"
+  }
+}
