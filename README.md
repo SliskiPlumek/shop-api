@@ -8,6 +8,18 @@ This is a GraphQL API server for a shop application. It allows users to create a
  - MongoDB (Mongoose)
  - Firebase Storage (storing images in cloud)
  - JWT
+
+### Packages worth mension
+ This project also uses:
+ 1. Security package for authenticating jwt
+ ```bash
+  npm install @plumek/jwt-auth-express
+ ```
+More about this package: 
+
+[Git repo](https://github.com/SliskiPlumek/jwt-auth-express)
+
+[npm link](https://www.npmjs.com/package/@plumek/jwt-auth-express?activeTab=readme)
 ## Setup Instructions
 
 1. Clone the project
