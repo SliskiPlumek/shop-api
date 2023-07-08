@@ -2,9 +2,10 @@ const { gql } = require("graphql-tag");
 
 const typeDefs = gql`
   type Query {
-    login(email: String!, password: String!): AuthData
+    login(email: String!, password: String!): AuthData!
     getProducts: ProductData
-    getUser(email: String!): User!
+    getProduct(productId: ID!): Product!
+    getUser(userId: ID!): User!
   }
 
   type AuthData {
@@ -42,10 +43,10 @@ const typeDefs = gql`
   }
 
   input ProductInputData {
-    description: String
-    imageUrl: String
-    price: Int
     name: String
+    description: String
+    price: Int
+    imageUrl: String
   }
 
   type Mutation {

@@ -2,6 +2,8 @@ const User = require("../models/user");
 const Product = require("../models/product");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const firebase = require("firebase-admin");
+const validator = require("validator");
 
 const resolvers = {
   Query: {
@@ -14,15 +16,10 @@ const resolvers = {
         throw error;
       }
 
-      // user.products.shift()
-      // await user.save()
-
       return { ...user._doc, _id: user._id.toString() };
     },
 
     login: async (_, { email, password }) => {
-      const errors = [];
-
       const user = await User.findOne({ email: email });
 
       if (!user) {
@@ -70,7 +67,25 @@ const resolvers = {
           };
         }),
       };
-      // return {...products._doc}
+    },
+
+    getProduct: async (_, { productId }) => {
+      const product = await Product.findById(productId.toString()).populate(
+        "creator"
+      );
+
+      if (!product) {
+        const error = new Error("No product found!");
+        error.code = 404;
+        throw error;
+      }
+
+      return {
+        ...product._doc,
+        _id: product._id.toString(),
+        createdAt: product.createdAt.toISOString(),
+        updatedAt: product.updatedAt.toISOString(),
+      };
     },
   },
 
@@ -78,7 +93,26 @@ const resolvers = {
     createNewUser: async (_, { userData }) => {
       const errors = [];
 
+      if (!validator.isEmail(userData.email)) {
+        errors.push({ message: "Invalid e-mail" });
+      }
+
+      if (
+        validator.isEmpty(userData.password) ||
+        !validator.isLength(userData.password, { min: 5 })
+      ) {
+        errors.push({ message: "Password too short" });
+      }
+
+      if (errors.length > 0) {
+        const error = new Error("Invalid input");
+        error.data = errors;
+        error.code = 422;
+        throw error;
+      }
+
       const existingUser = await User.findOne({ email: userData.email });
+
       if (existingUser) {
         const error = new Error(
           "User with this email exists already, please log in"
@@ -96,6 +130,7 @@ const resolvers = {
           name: name,
           password: hashedPassword,
         });
+
         const user = await newUser.save();
 
         return { ...user._doc, _id: user._id.toString() };
@@ -121,10 +156,30 @@ const resolvers = {
         throw error;
       }
 
+      if (
+        validator.isEmpty(productData.name) ||
+        !validator.isLength(productData.name, { min: 3 })
+      ) {
+        errors.push({ message: "Name is too short" });
+      }
+
+      if (
+        validator.isEmpty(productData.description) ||
+        !validator.isLength(productData.description, { min: 5 })
+      ) {
+        errors.push({ message: "Description is too short" });
+      }
+
+      if (errors.length > 0) {
+        const error = new Error("Invalid input");
+        error.data = errors;
+        error.code = 422;
+        throw error;
+      }
+
       let imageUrl;
 
       if (productData.image) {
-        // Upload the image file
         const bucket = admin.storage().bucket();
         const file = bucket.file(productData.image.originalname);
         const blobStream = file.createWriteStream();
@@ -132,21 +187,19 @@ const resolvers = {
           throw error;
         });
         blobStream.on("finish", async () => {
-          // Get the public URL of the uploaded image
           imageUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
 
-          // Create the new product with the image URL
           const newProduct = new Product({
             name: productData.name,
             description: productData.description,
             price: productData.price,
             imageUrl: imageUrl,
-            creator: user, // Set the creator as the user's ID
+            creator: user,
           });
 
           const product = await newProduct.save();
-          user.products.push(product._id); // Push the product ID to the user's products array
-          await user.save(); // Save the user
+          user.products.push(product._id);
+          await user.save();
 
           return {
             ...product._doc,
@@ -157,17 +210,16 @@ const resolvers = {
         });
         blobStream.end(productData.image.buffer);
       } else {
-        // Create the new product without an image URL
         const newProduct = new Product({
           name: productData.name,
           description: productData.description,
           price: productData.price,
-          creator: user, // Set the creator as the user's ID
+          creator: user,
         });
 
         const product = await newProduct.save();
-        user.products.push(product._id); // Push the product ID to the user's products array
-        await user.save(); // Save the user
+        user.products.push(product._id);
+        await user.save();
 
         return {
           ...product._doc,
@@ -207,6 +259,27 @@ const resolvers = {
         throw error;
       }
 
+      if (
+        validator.isEmpty(productData.name) ||
+        !validator.isLength(productData.name, { min: 5 })
+      ) {
+        errors.push({ message: "Name is invalid" });
+      }
+
+      if (
+        validator.isEmpty(postInput.description) ||
+        !validator.isLength(postInput.description, { min: 5 })
+      ) {
+        errors.push({ message: "Description is invalid" });
+      }
+
+      if (errors.length > 0) {
+        const error = new Error("Invalid input");
+        error.data = errors;
+        error.code = 422;
+        throw error;
+      }
+
       try {
         product.name = productData.name;
         product.price = productData.price;
@@ -225,7 +298,7 @@ const resolvers = {
         };
       } catch (error) {
         console.log(error);
-        throw error; // Make sure to rethrow the error
+        throw error;
       }
     },
 
@@ -255,6 +328,12 @@ const resolvers = {
 
       await Product.findByIdAndRemove(productId);
       user.products.pull(productId);
+
+      if (product.imageUrl !== "") {
+        const bucket = firebase.storage().bucket();
+        const file = bucket.file(product.imageUrl);
+        await file.delete();
+      }
 
       await user.save();
       return true;
