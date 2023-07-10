@@ -6,6 +6,7 @@ const typeDefs = gql`
     getProducts: ProductData
     getProduct(productId: ID!): Product!
     getUser(userId: ID!): User!
+    getCart: Cart!
   }
 
   type AuthData {
@@ -13,12 +14,28 @@ const typeDefs = gql`
     userId: String!
   }
 
+  type Order {
+    _id: ID!
+    products: [Cart!]!
+    quantity: Int!
+  }
+
+  type CartItem {
+    productId: ID!
+    quantity: Int!
+  }
+
+  type Cart {
+    items: [CartItem!]!
+  }
+
   type User {
-    _id: ID
+    _id: ID!
     name: String!
     email: String!
     password: String!
     products: [Product!]!
+    cart: Cart!
   }
 
   input UserDataInput {
@@ -54,6 +71,8 @@ const typeDefs = gql`
     createNewProduct(productData: ProductInputData): Product!
     updateProduct(productData: ProductInputData, prodId: ID!): Product!
     deleteProduct(productId: ID!): Boolean!
+    addToCart(productId: ID!): Cart!
+    removeFromCart(productId: ID!): Boolean!
   }
 `;
 

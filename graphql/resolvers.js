@@ -87,6 +87,25 @@ const resolvers = {
         updatedAt: product.updatedAt.toISOString(),
       };
     },
+
+    getCart: async (_, __, {req}) => {
+      if (!req.isAuth) {
+        const error = new Error("Not authorized");
+        error.code = 401;
+        throw error;
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        const error = new Error("Not authorized");
+        error.code = 401;
+        throw error;
+      }
+
+      const cart = user.cart.items
+      return {items: cart}
+    }
   },
 
   Mutation: {
@@ -197,16 +216,21 @@ const resolvers = {
             creator: user,
           });
 
-          const product = await newProduct.save();
-          user.products.push(product._id);
-          await user.save();
+          try {
+            const product = await newProduct.save();
+            user.products.push(product._id);
+            await user.save();
 
-          return {
-            ...product._doc,
-            _id: product._id.toString(),
-            createdAt: product.createdAt.toISOString(),
-            updatedAt: product.updatedAt.toISOString(),
-          };
+            return {
+              ...product._doc,
+              _id: product._id.toString(),
+              createdAt: product.createdAt.toISOString(),
+              updatedAt: product.updatedAt.toISOString(),
+            };
+          } catch (err) {
+            console.log(err);
+            throw err;
+          }
         });
         blobStream.end(productData.image.buffer);
       } else {
@@ -217,16 +241,21 @@ const resolvers = {
           creator: user,
         });
 
-        const product = await newProduct.save();
-        user.products.push(product._id);
-        await user.save();
+        try {
+          const product = await newProduct.save();
+          user.products.push(product._id);
+          await user.save();
 
-        return {
-          ...product._doc,
-          _id: product._id.toString(),
-          createdAt: product.createdAt.toISOString(),
-          updatedAt: product.updatedAt.toISOString(),
-        };
+          return {
+            ...product._doc,
+            _id: product._id.toString(),
+            createdAt: product.createdAt.toISOString(),
+            updatedAt: product.updatedAt.toISOString(),
+          };
+        } catch (err) {
+          console.log(err);
+          throw err;
+        }
       }
     },
 
@@ -338,6 +367,86 @@ const resolvers = {
       await user.save();
       return true;
     },
+
+    addToCart: async (_, { productId }, { req }) => {
+      if (!req.isAuth) {
+        const error = new Error("User must be logged in!");
+        error.code = 401;
+        throw error;
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        const error = new Error("Not authorized!");
+        error.code = 401;
+        throw error;
+      }
+
+      const product = await Product.findById(productId.toString());
+
+      if (!product) {
+        const error = new Error("No product found");
+        error.code = 404;
+        throw error;
+      }
+
+      let newQuantity = 1;
+
+      try {
+        const cartItemIndex = user.cart.items.findIndex(
+          item => item.productId.toString() === productId.toString()
+        );
+
+        if (cartItemIndex >= 0) {
+          newQuantity = user.cart.items[cartItemIndex].quantity + 1;
+          user.cart.items[cartItemIndex].quantity = newQuantity;
+        } else {
+          user.cart.items.push({
+            productId: productId.toString(),
+            quantity: newQuantity,
+          });
+        }
+
+        await user.save();
+
+        return { items: user.cart.items };
+      } catch (err) {
+        console.log(err);
+        throw err;
+      }
+    },
+
+    removeFromCart: async(_, {productId}, {req}) => {
+      if (!req.isAuth) {
+        const error = new Error("User must be logged in!");
+        error.code = 401;
+        throw error;
+      }
+
+      const user = await User.findById(req.userId);
+
+      if (!user) {
+        const error = new Error("Not authorized!");
+        error.code = 401;
+        throw error;
+      }
+
+      const cartItemIndex = user.cart.items.findIndex(
+        (item) => item.productId.toString() === productId.toString()
+      );
+
+      if (cartItemIndex === -1) {
+        const error = new Error("Item not found in cart!");
+        error.code = 404;
+        throw error;
+      }
+    
+      user.cart.items.splice(cartItemIndex, 1);
+      await user.save();
+    
+      return true
+    }
   },
 };
 

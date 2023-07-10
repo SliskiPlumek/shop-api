@@ -44,7 +44,6 @@ const server = new ApolloServer({
   },
 });
 
-
 async function startServer() {
   await server.start();
 
