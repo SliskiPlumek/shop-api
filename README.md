@@ -76,6 +76,8 @@ The server will start running on the specified port (or the default port 3000).
 
 + getProducts - Retrieves a list of products.
 
++ getProduct(productId: "") - Returns certain product based on it`s id.
+
 + getUser(userId) - Retrieves a user by their id.
 
 ### Mutations
