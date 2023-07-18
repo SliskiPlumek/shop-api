@@ -26,11 +26,26 @@ const User = new Schema({
         productId: {
           type: Schema.Types.ObjectId,
           ref: "Product",
-          required: true
+          required: true,
         },
         quantity: { type: Number, required: true },
       },
     ],
+  },
+
+  resetToken: {
+    value: {
+      type: String,
+      default: null,
+    },
+    expiration: {
+      type: Date,
+      default: null,
+    },
+  },
+
+  validToken: {
+    type: Boolean,
   },
 });
 

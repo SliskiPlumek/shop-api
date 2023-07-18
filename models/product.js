@@ -12,7 +12,7 @@ const Product = new Schema(
       required: true,
     },
     imageUrl: {
-      type: String
+      type: String,
     },
     price: {
       type: Number,
@@ -21,10 +21,14 @@ const Product = new Schema(
     creator: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
     },
   },
   { timestamps: true }
 );
+
+Product.index({ name: 1 }); 
+Product.index({ description: 1 }); 
+Product.index({ price: 1 }); 
 
 module.exports = mongoose.model("Product", Product);

@@ -1,9 +1,20 @@
-const User = require("../models/user");
-const Product = require("../models/product");
+const dotenv = require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const firebase = require("firebase-admin");
 const validator = require("validator");
+const { v4: uuidv4 } = require("uuid");
+const moment = require("moment");
+const stripe = require("stripe")(process.env.STRIPE_API_KEY);
+
+const Product = require("../models/product");
+const User = require("../models/user");
+const Order = require("../models/order");
+const resetMail = require("../mails/reset");
+const receiptMail = require("../mails/receipt");
+
+const isLoggedIn = require("../middleware/isLogged");
+const { handleError } = require("../util/error");
 
 const resolvers = {
   Query: {
@@ -11,62 +22,21 @@ const resolvers = {
       const user = await User.findById(userId).populate("products");
 
       if (!user) {
-        const error = new Error("User with this id does not exist");
-        error.code = 404;
-        throw error;
+        handleError("User with this id does not exist", 404);
       }
 
       return { ...user._doc, _id: user._id.toString() };
     },
 
-    login: async (_, { email, password }) => {
-      const user = await User.findOne({ email: email });
-
-      if (!user) {
-        const error = new Error("No user with this email was found!");
-        error.code = 404;
-        throw error;
-      }
-
-      const validPassword = await bcrypt.compare(password, user.password);
-
-      if (!validPassword) {
-        const error = new Error("Invalid password!");
-        error.code = 401;
-        throw error;
-      }
-
-      try {
-        const secret = process.env.JWT_SECRET;
-        const token = jwt.sign(
-          {
-            userId: user._id.toString(),
-            email: user.email,
-          },
-          secret,
-          { expiresIn: "10h" }
-        );
-
-        return { userId: user._id.toString(), token: token };
-      } catch (err) {
-        console.log(err);
-        throw err;
-      }
-    },
-
     getProducts: async () => {
       const products = await Product.find().populate("creator");
 
-      return {
-        products: products.map((prod) => {
-          return {
-            ...prod._doc,
-            _id: prod._id.toString(),
-            createdAt: prod.createdAt.toISOString(),
-            updatedAt: prod.updatedAt.toISOString(),
-          };
-        }),
-      };
+      return products.map((prod) => ({
+        ...prod._doc,
+        _id: prod._id.toString(),
+        createdAt: prod.createdAt.toISOString(),
+        updatedAt: prod.updatedAt.toISOString(),
+      }));
     },
 
     getProduct: async (_, { productId }) => {
@@ -75,9 +45,7 @@ const resolvers = {
       );
 
       if (!product) {
-        const error = new Error("No product found!");
-        error.code = 404;
-        throw error;
+        handleError("No product found!", 404);
       }
 
       return {
@@ -88,24 +56,97 @@ const resolvers = {
       };
     },
 
-    getCart: async (_, __, {req}) => {
-      if (!req.isAuth) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
+    getCart: async (_, __, { req }) => {
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
+      }
+
+      const user = await User.findById(req.userId).populate(
+        "cart.items.productId"
+      );
+
+      const cart = user.cart.items;
+      return { items: cart };
+    },
+
+    getOrders: async (_, __, { req }) => {
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
       const user = await User.findById(req.userId);
 
+      const orders = await Order.find({
+        "user.userId": user._id.toString(),
+      }).lean();
+
+      return orders.map((order) => ({
+        ...order,
+        _id: order._id.toString(),
+        user: {
+          ...order.user,
+          userId: order.user.userId.toString(),
+        },
+        createdAt: order.createdAt.toISOString(),
+      }));
+    },
+
+    login: async (_, { email, password }) => {
+      const user = await User.findOne({ email: email });
+
       if (!user) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
+        handleError("No user with this email was found!", 404);
       }
 
-      const cart = user.cart.items
-      return {items: cart}
-    }
+      const validPassword = await bcrypt.compare(password, user.password);
+
+      if (!validPassword) {
+        handleError("Invalid password!", 401);
+      }
+
+      const secret = process.env.JWT_SECRET;
+      const token = jwt.sign(
+        {
+          userId: user._id.toString(),
+          email: user.email,
+        },
+        secret,
+        { expiresIn: "10h" }
+      );
+
+      return { userId: user._id.toString(), token: token };
+    },
+
+    resetPassword: async (_, { email }) => {
+      const user = await User.findOne({ email: email });
+
+      if (!user) {
+        handleError("No user with this email was found!", 404);
+      }
+
+      const token = uuidv4();
+
+      user.resetToken = {
+        value: token,
+        expiration: undefined,
+      };
+
+      user.validToken = false;
+
+      resetMail(email, token);
+
+      await user.save();
+
+      return "Reset link sent!";
+    },
   },
 
   Mutation: {
@@ -133,10 +174,7 @@ const resolvers = {
       const existingUser = await User.findOne({ email: userData.email });
 
       if (existingUser) {
-        const error = new Error(
-          "User with this email exists already, please log in"
-        );
-        throw error;
+        handleError("User with this email exists already, please log in", 400);
       }
 
       try {
@@ -148,32 +186,32 @@ const resolvers = {
           email: email,
           name: name,
           password: hashedPassword,
+          resetToken: {
+            value: null,
+            expiration: null,
+          },
         });
 
         const user = await newUser.save();
 
         return { ...user._doc, _id: user._id.toString() };
       } catch (err) {
-        console.log(err);
+        throw err;
       }
     },
 
     createNewProduct: async (_, { productData }, { req }) => {
       const errors = [];
 
-      if (!req.isAuth) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
       const user = await User.findById(req.userId);
-
-      if (!user) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
-      }
 
       if (
         validator.isEmpty(productData.name) ||
@@ -216,32 +254,6 @@ const resolvers = {
             creator: user,
           });
 
-          try {
-            const product = await newProduct.save();
-            user.products.push(product._id);
-            await user.save();
-
-            return {
-              ...product._doc,
-              _id: product._id.toString(),
-              createdAt: product.createdAt.toISOString(),
-              updatedAt: product.updatedAt.toISOString(),
-            };
-          } catch (err) {
-            console.log(err);
-            throw err;
-          }
-        });
-        blobStream.end(productData.image.buffer);
-      } else {
-        const newProduct = new Product({
-          name: productData.name,
-          description: productData.description,
-          price: productData.price,
-          creator: user,
-        });
-
-        try {
           const product = await newProduct.save();
           user.products.push(product._id);
           await user.save();
@@ -252,20 +264,38 @@ const resolvers = {
             createdAt: product.createdAt.toISOString(),
             updatedAt: product.updatedAt.toISOString(),
           };
-        } catch (err) {
-          console.log(err);
-          throw err;
-        }
+        });
+        blobStream.end(productData.image.buffer);
+      } else {
+        const newProduct = new Product({
+          name: productData.name,
+          description: productData.description,
+          price: productData.price,
+          creator: user,
+        });
+
+        const product = await newProduct.save();
+        user.products.push(product._id);
+        await user.save();
+
+        return {
+          ...product._doc,
+          _id: product._id.toString(),
+          createdAt: product.createdAt.toISOString(),
+          updatedAt: product.updatedAt.toISOString(),
+        };
       }
     },
 
     updateProduct: async (_, { productData, prodId }, { req }) => {
       const errors = [];
 
-      if (!req.isAuth) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
       const product = await Product.findById(prodId.toString()).populate(
@@ -273,19 +303,13 @@ const resolvers = {
       );
 
       if (!product) {
-        const error = new Error("Product not found!");
-        error.code = 404;
-        throw error;
+        handleError("Product not found!", 404);
       }
 
       const user = await User.findById(req.userId).populate("products");
 
       if (product.creator._id.toString() !== user._id.toString()) {
-        const error = new Error(
-          "The product does not belong to the current user!"
-        );
-        error.code = 401;
-        throw error;
+        handleError("The product does not belong to the current user!", 401);
       }
 
       if (
@@ -296,8 +320,8 @@ const resolvers = {
       }
 
       if (
-        validator.isEmpty(postInput.description) ||
-        !validator.isLength(postInput.description, { min: 5 })
+        validator.isEmpty(productData.description) ||
+        !validator.isLength(productData.description, { min: 5 })
       ) {
         errors.push({ message: "Description is invalid" });
       }
@@ -309,56 +333,49 @@ const resolvers = {
         throw error;
       }
 
-      try {
-        product.name = productData.name;
-        product.price = productData.price;
-        product.description = productData.description;
+      product.name = productData.name;
+      product.price = productData.price;
+      product.description = productData.description;
 
-        if (productData.imageUrl !== undefined) {
-          product.imageUrl = productData.imageUrl;
-        }
-
-        const updatedProduct = await product.save();
-        return {
-          ...updatedProduct._doc,
-          _id: updatedProduct._id.toString(),
-          createdAt: updatedProduct.createdAt.toISOString(),
-          updatedAt: updatedProduct.updatedAt.toISOString(),
-        };
-      } catch (error) {
-        console.log(error);
-        throw error;
+      if (productData.imageUrl !== undefined) {
+        product.imageUrl = productData.imageUrl;
       }
+
+      const updatedProduct = await product.save();
+      return {
+        ...updatedProduct._doc,
+        _id: updatedProduct._id.toString(),
+        createdAt: updatedProduct.createdAt.toISOString(),
+        updatedAt: updatedProduct.updatedAt.toISOString(),
+      };
     },
 
     deleteProduct: async (_, { productId }, { req }) => {
-      if (!req.isAuth) {
-        const error = new Error("Not authorized");
-        error.code = 401;
-        throw error;
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
       const product = await Product.findById(productId.toString()).populate(
         "creator"
       );
       if (!product) {
-        const error = new Error("Product not found!");
-        error.code = 404;
-        throw error;
+        handleError("Product not found!", 404);
       }
 
       const user = await User.findById(req.userId).populate("products");
 
       if (product.creator._id.toString() !== user._id.toString()) {
-        const error = new Error("Cannot manage other users products!");
-        error.code = 401;
-        throw error;
+        handleError("Cannot manage other users products!", 401);
       }
 
       await Product.findByIdAndRemove(productId);
       user.products.pull(productId);
 
-      if (product.imageUrl !== "") {
+      if (product.imageUrl !== "" || product.imageUrl !== null) {
         const bucket = firebase.storage().bucket();
         const file = bucket.file(product.imageUrl);
         await file.delete();
@@ -369,84 +386,240 @@ const resolvers = {
     },
 
     addToCart: async (_, { productId }, { req }) => {
-      if (!req.isAuth) {
-        const error = new Error("User must be logged in!");
-        error.code = 401;
-        throw error;
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
-      const user = await User.findById(req.userId);
-
-      if (!user) {
-        const error = new Error("Not authorized!");
-        error.code = 401;
-        throw error;
-      }
+      const user = await User.findById(req.userId).populate({
+        path: "cart.items.productId",
+        model: "Product",
+      });
 
       const product = await Product.findById(productId.toString());
 
       if (!product) {
-        const error = new Error("No product found");
-        error.code = 404;
-        throw error;
+        handleError("No product found", 404);
       }
 
       let newQuantity = 1;
 
-      try {
-        const cartItemIndex = user.cart.items.findIndex(
-          item => item.productId.toString() === productId.toString()
-        );
+      const cartItemIndex = user.cart.items.findIndex(
+        (item) => item.productId._id.toString() === productId.toString()
+      );
 
-        if (cartItemIndex >= 0) {
-          newQuantity = user.cart.items[cartItemIndex].quantity + 1;
-          user.cart.items[cartItemIndex].quantity = newQuantity;
-        } else {
-          user.cart.items.push({
-            productId: productId.toString(),
-            quantity: newQuantity,
-          });
-        }
+      const ownItemIndex = user.products.findIndex(
+        (item) => item._id.toString() === productId.toString()
+      );
 
-        await user.save();
-
-        return { items: user.cart.items };
-      } catch (err) {
-        console.log(err);
-        throw err;
+      if (ownItemIndex >= 0) {
+        handleError("Cannot add your own product to cart!", 400);
       }
+
+      if (cartItemIndex >= 0) {
+        newQuantity = user.cart.items[cartItemIndex].quantity + 1;
+        user.cart.items[cartItemIndex].quantity = newQuantity;
+      } else {
+        user.cart.items.push({
+          productId: productId.toString(),
+          quantity: newQuantity,
+        });
+      }
+
+      await user.save();
+
+      return { items: user.cart.items };
     },
 
-    removeFromCart: async(_, {productId}, {req}) => {
-      if (!req.isAuth) {
-        const error = new Error("User must be logged in!");
-        error.code = 401;
-        throw error;
+    removeFromCart: async (_, { productId }, { req }) => {
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
       }
 
       const user = await User.findById(req.userId);
-
-      if (!user) {
-        const error = new Error("Not authorized!");
-        error.code = 401;
-        throw error;
-      }
 
       const cartItemIndex = user.cart.items.findIndex(
         (item) => item.productId.toString() === productId.toString()
       );
 
       if (cartItemIndex === -1) {
-        const error = new Error("Item not found in cart!");
-        error.code = 404;
-        throw error;
+        handleError("Item not found in cart!", 404);
       }
-    
+
       user.cart.items.splice(cartItemIndex, 1);
       await user.save();
-    
-      return true
-    }
+
+      return true;
+    },
+
+    clearCart: async (_, __, { req }) => {
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
+      }
+
+      const user = await User.findById(req.userId);
+
+      await user.populate("cart.items");
+
+      user.cart.items = [];
+      await user.save();
+
+      return { items: user.cart.items };
+    },
+
+    validateToken: async (_, { token }) => {
+      const user = await User.findOne({ "resetToken.value": token });
+
+      if (!user) {
+        handleError("Invalid token", 401);
+      }
+
+      const expiration = moment(user.resetToken.expiration);
+
+      if (expiration.isBefore(moment())) {
+        handleError("Token has expired!", 401);
+      }
+
+      user.validToken = true;
+      await user.save();
+
+      return { ...user._doc, _id: user._id.toString() };
+    },
+
+    changePassword: async (_, { userId, newPassword }) => {
+      const user = await User.findById(userId);
+
+      if (!user) {
+        handleError("User not found", 401);
+      }
+
+      if (user.validToken !== true) {
+        handleError("Invalid token", 401);
+      }
+
+      if (!user.resetToken.value) {
+        handleError("Invalid token", 401);
+      }
+
+      const errors = [];
+
+      if (
+        validator.isEmpty(newPassword) ||
+        !validator.isLength(newPassword, { min: 5 })
+      ) {
+        errors.push({ message: "Password too short" });
+      }
+
+      if (errors.length > 0) {
+        const error = new Error("Invalid input");
+        error.data = errors;
+        error.code = 422;
+        throw error;
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 16);
+
+      user.password = hashedPassword;
+      user.resetToken = {
+        value: null,
+        expiration: null,
+      };
+      user.validToken = false;
+      await user.save();
+
+      return "Password changed!";
+    },
+
+    checkout: async (_, __, { req }) => {
+      const authorizationError = await isLoggedIn(req);
+
+      if (authorizationError instanceof Error) {
+        return {
+          error: isLoggedIn.message,
+        };
+      }
+
+      const user = await User.findById(req.userId).populate(
+        "cart.items.productId"
+      );
+
+      if (user.cart.items.length === 0) {
+        handleError("Cannot checkout with an empty cart!", 400);
+      }
+
+      const cartProducts = user.cart.items.map((item) => ({
+        _id: item.productId._id.toString(),
+        name: item.productId.name,
+        description: item.productId.description,
+        price: item.productId.price,
+        imageUrl: item.productId.imageUrl,
+        quantity: item.quantity,
+      }));
+
+      let total = 0;
+
+      cartProducts.forEach((item) => {
+        total += item.price * item.quantity;
+      });
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: cartProducts.map((p) => ({
+          price_data: {
+            currency: process.env.STRIPE_CURRENCY,
+            unit_amount: p.price * 100,
+            product_data: {
+              name: p.name,
+              description: p.description,
+            },
+          },
+          quantity: p.quantity,
+        })),
+        mode: "payment",
+        success_url: process.env.CHECKOUT_SUCCESS,
+        cancel_url: process.env.CHECKOUT_CANCEL,
+      });
+
+      const order = new Order({
+        user: {
+          userId: user._id.toString(),
+          email: user.email,
+        },
+
+        products: cartProducts.map((product) => ({
+          productId: product._id.toString(),
+          quantity: product.quantity,
+          product: product,
+        })),
+
+        totalPrice: total,
+      });
+
+      await order.save();
+
+      // if (session && session.payment_status === "paid") {
+      receiptMail(order, user.email);
+      // }
+
+      user.cart.items = [];
+      await user.save();
+
+      return {
+        orderId: order._id,
+        clientSecret: session.client_secret,
+      };
+    },
   },
 };
 
