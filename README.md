@@ -8,6 +8,7 @@ This is a GraphQL API server for a shop application. It allows users to create a
  - MongoDB (Mongoose)
  - Firebase Storage (storing images in cloud)
  - JWT
+ - Stripe
 
 ### Packages worth mension
  This project also uses:
@@ -42,6 +43,11 @@ MONGO_PASSWORD=YourDbPassword
 MONGO_DEFAULT_DB=YourDefaultDB
 JWT_SECRET=YourJWTSecret
 STORAGE_BUCKET=YourFirebaseStorageBucket
+STRIPE_API_KEY=YourApiKey
+CHECKOUT_SUCCESS=YourRedirectLink
+CHECKOUT_CANCEL=YourRedirectLink
+SENDGRID_KEY=SendGridKey
+STRIPE_CURRENCY=YourCurrency
 ```
 
 4. Start the server
@@ -66,31 +72,144 @@ The server will start running on the specified port (or the default port 3000).
 
 - Product: Stores product information such as name, description, price, image URL, creator, and timestamps. The creator field is a reference to the user who created the product.
 
+- Order: Stores order information such as products, total price and userId.
+
 
 
 ## Queries & Mutations
 
 ### Queries
 
-+ login(email, password) - Authenticates a user with their email and password and returns userId and jwt token to request object.
+1. getUser(userId: ID!): User!
 
-+ getProducts - Retrieves a list of products.
+- Description: Get a user by their userId.
+- Input: 
+    * userId (required): ID of the user.
 
-+ getProduct(productId: "") - Returns certain product based on it`s id.
+2. login(email: String!, password: String!): AuthData!
 
-+ getUser(userId) - Retrieves a user by their id.
+- Description: Authenticate a user and get their authentication data(userId, token).
+- Input:
+    * email (required): Email of the user.
+    * password (required): Password of the user.
+
+3. getProducts: [Product!]!
+
+- Description: Get all products available.
+- Output: An array of Product objects.
+
+4. getProduct(productId: ID!): Product!
+
+- Description: Get a product by its productId.
+- Input:
+    * productId (required): ID of the product.
+
+5. getCart: Cart!
+
+- Description: Get the user's cart.
+- Output: Cart object representing the user's cart.
+
+6. resetPassword(email: String!): String!
+
+- Description: Reset the user's password.
+- Input:
+    * email (required): Email of the user.
+    * Output: A success message string.
+
+7. getOrders: [Order!]!
+
+- Description: Get all orders placed by the user.
+- Output: An array of Order objects.
 
 ### Mutations
 
-+ createNewUser(userData: {name: "", email: "", password: ""}) - Creates a new user.
+1. createNewUser(userData: UserData!): User!
 
-+ createNewProduct(productData: {name: "", description: "", price: int, imageUrl: ""}) - Creates a new product.
+- Description: Create a new user account.
+- Input:
+    * userData (required): Object containing user data including email, name, and password.
+- Output: User object representing the created user.
 
-+ updateProduct({same input as above, prodId: ""}) - Updates an existing product.
+2. createNewProduct(productData: ProductInput!): Product!
 
-+ deleteProduct(productId: "") - Deletes a product and retrieves boolean.
+- Description: Create a new product.
+- Input:
+    * productData (required): Object containing product data including name, description, price, and imageUrl.
+- Output: Product object representing the created product.
+
+3. updateProduct(productData: ProductInput!, productId: ID!): Product!
+
+- Description: Update an existing product by productId.
+- Input:
+    * productData (required): Object containing updated product data.
+    * productId (required): ID of the product to be updated.
+- Output: Product object representing the updated product.
+
+4. deleteProduct(productId: ID!): Boolean!
+
+- Description: Delete a product by productId.
+- Input:
+    * productId (required): ID of the product to be deleted.
+- Output: A boolean indicating whether the deletion was successful.
+
+5. addToCart(productId: ID!): Cart!
+
+- Description: Add a product to the user's cart.
+- Input:
+    * productId (required): ID of the product to be added to the cart.
+- Output: Cart object representing the updated cart.
+
+6. removeFromCart(productId: ID!): Boolean!
+
+- Description: Remove a product from the user's cart.
+- Input:
+    * productId (required): ID of the product to be removed from the cart.
+- Output: A boolean indicating whether the removal was successful.
+
+7. clearCart: Cart!
+
+- Description: Clear the user's cart (remove all items).
+- Output: Cart object representing the emptied cart.
+
+8. checkout: CheckoutData!
+
+- Description: Proceed with the cart checkout process.
+- Output: CheckoutData object containing order details and payment information.
+
+9. validateToken(token: String!): User!
+
+- Description: Validate a user's token for authentication.
+- Input:
+    * token (required): User's authentication token.
+- Output: User object representing the authenticated user.
+
+10. changePassword(userId: ID!, newPassword: String!): String!
+
+- Description: Change the user's password.
+- Input:
+    * userId (required): ID of the user.
+    * newPassword (required): New password to be set for the user.
+- Output: A success message string.
 
 
-## Project State
+## Types:
 
-It is pre demo of project which might not include all of the features and might have issues. But this project is still in development so keep up with this repo and stay updated! I plan to deploy it on some hosting site in future.
++ User: Represents a user with properties like _id, email, name, password, products, and cart. 
+
++ Product: Represents a product with properties like _id, name, description, price, imageUrl, creator, createdAt, and updatedAt.
+
++ Order: Represents an order with properties like _id, user, products, totalPrice, and paymentIntentId.
+
++ OrderProduct: Represents a product within an order with properties like productId, quantity, and product.
+
++ AuthData: Represents authentication data with properties userId and token.
+
++ Cart: Represents a user's cart with the property items.
+
++ CartItem: Represents an item within a cart with properties like productId and quantity.
+
++ CheckoutData: Represents data related to the checkout process with properties like orderId and clientSecret.
+
++ ProductInput: Represents input data for creating or updating a product with properties like name, description, price, and imageUrl.
+
++ UserData: Represents input data for creating a new user with properties like email, name, and password.
