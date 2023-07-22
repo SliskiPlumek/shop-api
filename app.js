@@ -12,6 +12,10 @@ const firebase = require("firebase-admin");
 const compression = require("compression");
 const cache = require("memory-cache");
 const { v4: uuidv4 } = require('uuid')
+const helmet = require('helmet')
+const morgan = require('morgan')
+const fs = require('fs')
+const path = require('path')
 
 const resolvers = require("./graphql/resolvers");
 const typeDefs = require("./graphql/typeDefs");
@@ -20,10 +24,15 @@ const app = express();
 const serviceAccount = require("./serviceAccountKey.json");
 
 const parser = bodyParser.json();
+const accessLogStream = fs.createWriteStream(path.join(__dirname, "access.log"), {flags: 'a'})
+
+app.use(helmet())
 
 app.use(cors());
 
 app.use(compression());
+
+app.use(morgan('combined', {stream: accessLogStream}))
 
 firebase.initializeApp({
   credential: firebase.credential.cert(serviceAccount),
@@ -98,6 +107,10 @@ async function startServer() {
   );
 
   app.post("/upload", upload.single("image"), async (req, res, next) => {
+    if(!req.isAuth) {
+      throw new Error("Not authenticated")
+    }
+
     try {
       if (!req.file) {
         throw new Error("No file uploaded");
@@ -133,12 +146,9 @@ async function startServer() {
     `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASSWORD}@cluster0.xmbmroe.mongodb.net/${process.env.MONGO_DEFAULT_DB}`,
     {maxPoolSize: 10}
   );
-  console.log("DB connected");
 
   const PORT = process.env.PORT || 3000;
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-  });
+  app.listen(PORT);
 }
 
 startServer();
