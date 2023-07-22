@@ -10,6 +10,8 @@ const auth = require("@plumek/jwt-auth-express");
 const multer = require("multer");
 const firebase = require("firebase-admin");
 const compression = require("compression");
+const cache = require("memory-cache");
+const { v4: uuidv4 } = require('uuid')
 
 const resolvers = require("./graphql/resolvers");
 const typeDefs = require("./graphql/typeDefs");
@@ -18,6 +20,8 @@ const app = express();
 const serviceAccount = require("./serviceAccountKey.json");
 
 const parser = bodyParser.json();
+
+app.use(cors());
 
 app.use(compression());
 
@@ -52,6 +56,30 @@ const server = new ApolloServer({
   },
 });
 
+const cacheMiddleware = (duration) => (req, res, next) => {
+  const key = "__express__" + req.originalUrl || req.url;
+
+  const excludeFromCache = req.originalUrl.includes('/graphql');
+
+  if (!excludeFromCache) {
+    const cachedBody = cache.get(key);
+    if (cachedBody) {
+      res.send(cachedBody);
+      return;
+    } else {
+      res.sendResponse = res.send;
+      res.send = (body) => {
+        cache.put(key, body, duration * 1000);
+        res.sendResponse(body);
+      };
+      next();
+    }
+  } else {
+    next();
+  }
+};
+
+
 async function startServer() {
   await server.start();
 
@@ -59,12 +87,11 @@ async function startServer() {
     "/graphql",
     cors(),
     parser,
+    cacheMiddleware(10),
     expressMiddleware(server, {
       context: ({ req }) => {
         return {
           req,
-          // isAuth: req.isAuth,
-          // userId: req.userId
         };
       },
     })
@@ -75,9 +102,17 @@ async function startServer() {
       if (!req.file) {
         throw new Error("No file uploaded");
       }
-
+  
       const bucket = firebase.storage().bucket();
-      const file = bucket.file(req.file.originalname);
+  
+      const randomFilename = `${uuidv4()}_${req.file.originalname}`;
+      const file = bucket.file(randomFilename);
+  
+      const [fileExists] = await file.exists();
+      if (fileExists) {
+        throw new Error("File with the same name already exists");
+      }
+  
       const blobStream = file.createWriteStream();
       blobStream.on("error", (error) => {
         throw error;
@@ -91,9 +126,12 @@ async function startServer() {
       next(error);
     }
   });
+  
+  
 
   await mongoose.connect(
-    `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASSWORD}@cluster0.xmbmroe.mongodb.net/${process.env.MONGO_DEFAULT_DB}`
+    `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASSWORD}@cluster0.xmbmroe.mongodb.net/${process.env.MONGO_DEFAULT_DB}`,
+    {maxPoolSize: 10}
   );
   console.log("DB connected");
 

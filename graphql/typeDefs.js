@@ -68,26 +68,26 @@ const typeDefs = gql`
   }
 
   type Query {
-    getUser(userId: ID!): User! #
-    login(email: String!, password: String!): AuthData! #
-    getProducts: [Product!]! #
-    getProduct(productId: ID!): Product! #
-    getCart: Cart! #
-    resetPassword(email: String!): String! #
+    getUser(userId: ID!): User! 
+    login(email: String!, password: String!): AuthData! 
+    getProducts: [Product!]! 
+    getProduct(productId: ID!): Product! 
+    getCart: Cart! 
+    resetPassword(email: String!): String! 
     getOrders: [Order!]!
   }
 
   type Mutation {
-    createNewUser(userData: UserData!): User! #
-    createNewProduct(productData: ProductInput!): Product! #
-    updateProduct(productData: ProductInput!, productId: ID!): Product! #
-    deleteProduct(productId: ID!): Boolean! #
-    addToCart(productId: ID!): Cart! #
-    removeFromCart(productId: ID!): Boolean!
-    clearCart: Cart! #
+    createNewUser(userData: UserData!): User! 
+    createNewProduct(productData: ProductInput!): Product! 
+    updateProduct(productData: ProductInput!, productId: ID!): Product! 
+    deleteProduct(productId: ID!): Boolean! 
+    addToCart(productId: ID!): Cart! 
+    removeFromCart(productId: ID!): Boolean! 
+    clearCart: Cart! 
     checkout: CheckoutData!
-    validateToken(token: String!): User! #
-    changePassword(userId: ID!, newPassword: String!): String! #
+    validateToken(token: String!): User! 
+    changePassword(userId: ID!, newPassword: String!): String! 
   }
 `;
 

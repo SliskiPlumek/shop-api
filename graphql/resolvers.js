@@ -234,57 +234,26 @@ const resolvers = {
         throw error;
       }
 
-      let imageUrl;
+      const imageUrl = productData.imageUrl || null;
 
-      if (productData.image) {
-        const bucket = admin.storage().bucket();
-        const file = bucket.file(productData.image.originalname);
-        const blobStream = file.createWriteStream();
-        blobStream.on("error", (error) => {
-          throw error;
-        });
-        blobStream.on("finish", async () => {
-          imageUrl = `https://storage.googleapis.com/${bucket.name}/${file.name}`;
+      const newProduct = new Product({
+        name: productData.name,
+        description: productData.description,
+        price: productData.price,
+        creator: user,
+        imageUrl: imageUrl,
+      });
 
-          const newProduct = new Product({
-            name: productData.name,
-            description: productData.description,
-            price: productData.price,
-            imageUrl: imageUrl,
-            creator: user,
-          });
+      const product = await newProduct.save();
+      user.products.push(product._id);
+      await user.save();
 
-          const product = await newProduct.save();
-          user.products.push(product._id);
-          await user.save();
-
-          return {
-            ...product._doc,
-            _id: product._id.toString(),
-            createdAt: product.createdAt.toISOString(),
-            updatedAt: product.updatedAt.toISOString(),
-          };
-        });
-        blobStream.end(productData.image.buffer);
-      } else {
-        const newProduct = new Product({
-          name: productData.name,
-          description: productData.description,
-          price: productData.price,
-          creator: user,
-        });
-
-        const product = await newProduct.save();
-        user.products.push(product._id);
-        await user.save();
-
-        return {
-          ...product._doc,
-          _id: product._id.toString(),
-          createdAt: product.createdAt.toISOString(),
-          updatedAt: product.updatedAt.toISOString(),
-        };
-      }
+      return {
+        ...product._doc,
+        _id: product._id.toString(),
+        createdAt: product.createdAt.toISOString(),
+        updatedAt: product.updatedAt.toISOString(),
+      };
     },
 
     updateProduct: async (_, { productData, prodId }, { req }) => {
@@ -608,9 +577,9 @@ const resolvers = {
 
       await order.save();
 
-      // if (session && session.payment_status === "paid") {
-      receiptMail(order, user.email);
-      // }
+      if (session && session.payment_status === "paid") {
+        receiptMail(order, user.email);
+      }
 
       user.cart.items = [];
       await user.save();
