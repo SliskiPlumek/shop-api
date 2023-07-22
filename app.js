@@ -21,7 +21,7 @@ const resolvers = require("./graphql/resolvers");
 const typeDefs = require("./graphql/typeDefs");
 
 const app = express();
-const serviceAccount = require(process.env.SERVICE_ACCOUNT);
+const serviceAccount = process.env.SERVICE_ACCOUNT;
 
 const parser = bodyParser.json();
 const accessLogStream = fs.createWriteStream(path.join(__dirname, "access.log"), {flags: 'a'})
